@@ -1,22 +1,86 @@
 package main
 
 import (
-	"net/http"
-
+	"crypto/sha1"
+	"encoding/xml"
+	"fmt"
 	"github.com/gin-gonic/gin"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"sort"
+	"strings"
+	"time"
 )
 
 var db = make(map[string]string)
 
+func PrintRequest() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// t := time.Now()
+		// 请求前
+		dumpRequest, _ := httputil.DumpRequest(c.Request, true)
+		log.Println("Request:\n" + string(dumpRequest))
+		c.Next()
+		// 请求后
+		// latency := time.Since(t)
+		// log.Print("cost time: " + latency.String())
+		// status := c.Writer.Status()
+		// log.Println(status)
+	}
+}
+func checkSignature(signature string, timestamp string, nonce string) bool {
+	token := "yzk"
+	tmpArr := []string{token, timestamp, nonce}
+	sort.Strings(tmpArr)
+	tmpStr := strings.Join(tmpArr, "")
+	hash := sha1.New()
+	hash.Write([]byte(tmpStr))
+	tmpHash := fmt.Sprintf("%x", hash.Sum(nil))
+	return tmpHash == signature
+}
+
+type TextMsg struct {
+	XMLName      xml.Name `xml:"xml"`
+	ToUserName   string   `xml:"ToUserName"`
+	FromUserName string   `xml:"FromUserName"`
+	CreateTime   int64    `xml:"CreateTime"`
+	MsgType      string   `xml:"MsgType"`
+	Content      string   `xml:"Content"`
+	MsgId        string   `xml:"MsgId"`
+}
+
 func setupRouter() *gin.Engine {
 	// Disable Console Color
 	// gin.DisableConsoleColor()
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	r.SetTrustedProxies([]string{"127.0.0.1"})
-
-	// Ping test
-	r.GET("/ping", func(c *gin.Context) {
-		c.String(http.StatusOK, "pong")
+	_ = r.SetTrustedProxies([]string{"127.0.0.1"})
+	// r.Use(PrintRequest())
+	r.GET("/yzk/wechat/notify/:appId", func(c *gin.Context) {
+		log.Printf("appId: %s\n", c.Param("appId"))
+		echostr := c.Query("echostr")
+		signature := c.Query("signature")
+		timestamp := c.Query("timestamp")
+		nonce := c.Query("nonce")
+		if checkSignature(signature, timestamp, nonce) {
+			c.String(http.StatusOK, echostr)
+		}
+	})
+	r.POST("/yzk/wechat/notify/:appId", func(c *gin.Context) {
+		msg := TextMsg{}
+		_ = c.ShouldBindXML(&msg)
+		log.Printf("appId[%s]openId[%s]MsgType[%s]Content[%s]MsgId[%s]\n",
+			c.Param("appId"), msg.FromUserName, msg.MsgType, msg.Content, msg.MsgId)
+		if "text" != msg.MsgType {
+			c.String(http.StatusOK, "success")
+			return
+		}
+		f := msg.FromUserName
+		msg.FromUserName = msg.ToUserName
+		msg.ToUserName = f
+		msg.CreateTime = time.Now().Unix()
+		c.XML(http.StatusOK, msg)
 	})
 
 	// Get user value
@@ -36,7 +100,7 @@ func setupRouter() *gin.Engine {
 	// authorized.Use(gin.BasicAuth(gin.Credentials{
 	//	  "foo":  "bar",
 	//	  "manu": "123",
-	//}))
+	// }))
 	authorized := r.Group("/", gin.BasicAuth(gin.Accounts{
 		"foo":  "bar", // user:foo password:bar
 		"manu": "123", // user:manu password:123
@@ -69,7 +133,5 @@ func setupRouter() *gin.Engine {
 }
 
 func main() {
-	r := setupRouter()
-	// Listen and Server in 0.0.0.0:8080
-	r.Run("127.0.0.1:8080")
+	_ = setupRouter().Run("127.0.0.1:8351")
 }
