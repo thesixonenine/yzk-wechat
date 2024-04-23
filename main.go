@@ -45,7 +45,11 @@ type TextMsg struct {
 	CreateTime   int64    `xml:"CreateTime"`
 	MsgType      string   `xml:"MsgType"`
 	Content      string   `xml:"Content"`
+	Image        Image    `xml:"Image"`
 	MsgId        string   `xml:"MsgId"`
+}
+type Image struct {
+	MediaId string `xml:"MediaId"`
 }
 
 func setupRouter() *gin.Engine {
@@ -78,6 +82,8 @@ func setupRouter() *gin.Engine {
 		msg.FromUserName = msg.ToUserName
 		msg.ToUserName = f
 		msg.CreateTime = time.Now().Unix()
+		msg.MsgType = "image"
+		msg.Image.MediaId = "4B_rIg-H5pEknQ0hyPf-TsRBBrbSvWY_wHOM-WycMrUa9Ix8DJzahYUjaaRJCdKe"
 		c.XML(http.StatusOK, msg)
 	})
 
